@@ -27,8 +27,12 @@
   <dialog id="settingsDialog" class="dialog">
     <form method="dialog">
       <h3>Días de entreno</h3>
-      <p class="muted">Elige en qué días quieres entrenar. La app asigna sesiones en orden a esos días.</p>
+      <p class="muted">Selecciona los días como guía. El número de días elegidos define cuántas sesiones contiene cada SEMANA (no depende del calendario).</p>
       <div id="weekdayPicker" class="weekday-grid"></div>
+
+      <div class="row gap">
+        <label class="toggle"><input type="checkbox" id="soundToggle"> Sonido (campanilla)</label>
+      </div>
 
       <div class="row gap">
         <button id="btnSaveSettings" class="btn primary" value="default">Guardar</button>

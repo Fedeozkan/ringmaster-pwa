@@ -5,7 +5,8 @@
 
 const LS = {
   completed: "rm.completedSessions.v1",
-  days: "rm.trainingDays.v1" // 0=Dom .. 6=Sáb
+  days: "rm.trainingDays.v1", // 0=Dom .. 6=Sáb
+  sound: "rm.sound.v1" // true/false
 };
 
 // Nota: Date.getDay() usa 0=Dom .. 6=Sáb.
@@ -59,6 +60,59 @@ function getDays(){
 }
 function setDays(setObj){
   localStorage.setItem(LS.days, JSON.stringify([...setObj].sort((a,b)=>a-b)));
+}
+
+function getSoundEnabled(){
+  const v = localStorage.getItem(LS.sound);
+  if (v === null) return true;
+  return v === "true";
+}
+function setSoundEnabled(v){
+  localStorage.setItem(LS.sound, String(!!v));
+}
+
+// Sonido tipo "campanilla" (sin archivos, WebAudio)
+let _audioCtx = null;
+function playBell(){
+  try{
+    if (!_audioCtx){
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_audioCtx.state === "suspended") _audioCtx.resume();
+    if (!getSoundEnabled()) return;
+
+    const ctx = _audioCtx;
+    const t0 = ctx.currentTime;
+
+    // Mezcla de parciales inarmónicos para un "clang" metálico
+    const freqs = [740, 1110, 1480, 2220];
+    const gains = [0.18, 0.12, 0.08, 0.05];
+
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.0001, t0);
+    master.gain.exponentialRampToValueAtTime(0.6, t0 + 0.01);
+    master.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.4);
+    master.connect(ctx.destination);
+
+    freqs.forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(f, t0);
+      osc.detune.setValueAtTime((i%2===0 ? -7 : 9), t0);
+
+      g.gain.setValueAtTime(gains[i], t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.2);
+
+      osc.connect(g);
+      g.connect(master);
+
+      osc.start(t0);
+      osc.stop(t0 + 1.5);
+    });
+  }catch(e){
+    // si el navegador bloquea audio, no hacemos nada
+  }
 }
 
 function nextTrainDates(daysSet, count=12){
@@ -189,51 +243,44 @@ function renderHome(root){
   root.appendChild(el("div", {class:"card"}, [
     el("div", {class:"row"}, [
       el("div", {}, [
-        el("h2", {}, ["Tu semana"]),
-        el("div", {class:"muted"}, [`Días de entreno: ${daysToString(days)}`])
+        el("h2", {}, ["Tu plan"]),
+        el("div", {class:"muted"}, [`Guía de días: ${daysToString(days)} · ${Math.max(1, days.size)} sesiones/semana`])
       ]),
       el("div", {class:"badge " + (doneCount ? "good" : "")}, [`${doneCount}/${total} completadas`])
     ])
   ]));
 
-  // próximos entrenos (agrupados por semanas, empezando en lunes)
-  const pendingSessions = DATA.program.sessions.filter(s => !completed.has(s.id));
-  const upcomingDates = nextTrainDates(days, 28); // ~4 semanas
+  // plan por semanas (NO depende del calendario: solo agrupa por nº de sesiones/semana)
+  const sessionsPerWeek = Math.max(1, days.size || 0);
+  const allSessions = DATA.program.sessions;
 
-  // Asigna sesiones en orden a cada fecha de entreno futura
-  const weekMap = new Map();
   const weeks = [];
-  let si = 0;
-  for (const date of upcomingDates){
-    const ws = startOfWeekMonday(date);
-    const key = ws.toISOString().slice(0,10);
-    if (!weekMap.has(key)){
-      const obj = { start: ws, items: [] };
-      weekMap.set(key, obj);
-      weeks.push(obj);
-    }
-    const session = pendingSessions[si] || null;
-    if (session) si++;
-    weekMap.get(key).items.push({ date, session });
+  for (let i=0; i<allSessions.length; i+=sessionsPerWeek){
+    weeks.push(allSessions.slice(i, i+sessionsPerWeek));
   }
 
   const upcomingWrap = el("div", {}, []);
-  weeks.forEach((w, idx) => {
-    const weekStart = w.start;
-    const weekEnd = endOfWeekSunday(weekStart);
+  weeks.forEach((weekSessions, idx) => {
+    const doneInWeek = weekSessions.filter(s => completed.has(s.id)).length;
+    const weekDone = doneInWeek === weekSessions.length;
+
     const header = el("div", {class:"weekhdr"}, [
-      el("div", {class:"weekhdr-title"}, [`Semana ${idx+1}`]),
-      el("div", {class:"muted small"}, [`${fmtDate(weekStart)} – ${fmtDate(weekEnd)}`])
+      el("div", {class:"weekhdr-title"}, [`SEMANA ${idx+1}`]),
+      el("div", {class:"weekhdr-right"}, [
+        el("span", {class:"muted small"}, [`${doneInWeek}/${weekSessions.length}`]),
+        weekDone ? el("span", {class:"weektick"}, ["✅"]) : null
+      ].filter(Boolean))
     ]);
 
     const list = el("div", {class:"list"}, []);
-    for (const it of w.items){
+    for (const sess of weekSessions){
+      const isDone = completed.has(sess.id);
       const left = el("div", {}, [
-        el("div", {class:"item-title"}, [fmtDate(it.date)]),
-        el("div", {class:"item-sub"}, [it.session ? `${it.session.name} · ${it.session.phase}` : "Sin sesiones pendientes 🎉"])
+        el("div", {class:"item-title"}, [sess.name]),
+        el("div", {class:"item-sub"}, [`${sess.phase}${sess.description ? " · " + sess.description : ""}`])
       ]);
-      const right = el("div", {class:"kbd"}, [it.session ? "Abrir →" : ""]);
-      const row = el("a", {class:"item", href: it.session ? `#session-${it.session.id}` : "#home"}, [left, right]);
+      const right = el("div", {class:"badge " + (isDone ? "good" : "")}, [isDone ? "Hecha" : "Pendiente"]);
+      const row = el("a", {class:"item " + (isDone ? "done" : ""), href: `#session-${sess.id}`}, [left, right]);
       list.appendChild(row);
     }
 
@@ -242,21 +289,24 @@ function renderHome(root){
   });
 
   root.appendChild(el("div", {class:"card"}, [
-    el("h3", {}, ["Próximos entrenos"]),
-    el("div", {class:"muted small"}, ["Se asignan en orden (Thenx): la primera sesión no completada cae en tu próximo día elegido." ]),
+    el("h3", {}, ["Plan por semanas"]),
+    el("div", {class:"muted small"}, [
+      `Guía: ${daysToString(days)} · ${sessionsPerWeek} sesiones/semana. (No depende del calendario: SEMANA 1 siempre contiene las primeras sesiones.)`
+    ]),
     upcomingWrap
   ]));
+
 
   // lista de sesiones
   const list = el("div", {class:"list"}, []);
   for (const s of DATA.program.sessions){
     const isDone = completed.has(s.id);
-    list.appendChild(el("a", {class:"item", href:`#session-${s.id}`}, [
+    list.appendChild(el("a", {class:"item " + (isDone ? "done" : ""), href:`#session-${s.id}`}, [
       el("div", {}, [
         el("div", {class:"item-title"}, [`${s.name} ${isDone ? "✅" : ""}`]),
         el("div", {class:"item-sub"}, [`${s.phase} · ${s.description || ""}`])
       ]),
-      el("div", {class:"badge"}, [isDone ? "Hecha" : "Pendiente"])
+      el("div", {class:"badge " + (isDone ? "good" : "")}, [isDone ? "Hecha" : "Pendiente"])
     ]));
   }
   root.appendChild(el("div", {class:"card"}, [
@@ -349,9 +399,18 @@ function renderPlayer(root, sessionId, stepIndex){
   const steps = flattenSteps(s);
   const step = steps[stepIndex];
   if (!step){
+    // Al terminar todos los pasos, marcamos la sesión como completada
+    const set = getCompleted();
+    set.add(s.id);
+    setCompleted(set);
+
     root.appendChild(el("div", {class:"card"}, [
       el("h2", {}, ["Sesión terminada 🎉"]),
-      el("a", {class:"btn primary", href:`#session-${s.id}`}, ["Volver a la sesión"])
+      el("div", {class:"muted"}, ["Marcada como completada en tu progreso."]),
+      el("div", {class:"controls"}, [
+        el("a", {class:"btn primary", href:"#home"}, ["Volver al inicio"]),
+        el("a", {class:"btn", href:`#session-${s.id}`}, ["Ver la sesión"])
+      ])
     ]));
     return;
   }
@@ -414,6 +473,7 @@ function renderPlayer(root, sessionId, stepIndex){
         setTimer(Math.max(playerState.remaining,0));
         if (playerState.remaining <= 0){
           stopTimer();
+          playBell();
           if (autoAdvance){
             location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
           }
@@ -536,12 +596,17 @@ function setupSettings(){
     renderPicker(days);
     dlg.showModal();
 
+    const soundToggle = $("#soundToggle");
+    if (soundToggle) soundToggle.checked = getSoundEnabled();
+
     $("#btnSaveSettings").onclick = () => {
       if (days.size === 0) {
         // no bloqueamos, pero evitamos “semana vacía”
         days.add(1); days.add(3); days.add(5);
       }
       setDays(days);
+      const soundToggle = $("#soundToggle");
+      if (soundToggle) setSoundEnabled(soundToggle.checked);
       dlg.close();
       route();
     };
@@ -555,6 +620,7 @@ function setupSettings(){
     $("#btnResetAll").onclick = () => {
       localStorage.removeItem(LS.completed);
       localStorage.removeItem(LS.days);
+      localStorage.removeItem(LS.sound);
       dlg.close();
       route();
     };
