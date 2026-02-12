@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111111"/>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <title>Ring Master</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img class="brand-icon" src="assets/icon-192.png" alt="RM">
+      <div class="brand-text">
+        <div class="brand-title">Ring Master</div>
+        <div class="brand-sub">Entrenos estilo Thenx (consistencia + progresión)</div>
+      </div>
+    </div>
+    <button id="btnSettings" class="iconbtn" aria-label="Ajustes">⚙️</button>
+  </header>
+
+  <main id="app" class="container"></main>
+
+  <dialog id="settingsDialog" class="dialog">
+    <form method="dialog">
+      <h3>Días de entreno</h3>
+      <p class="muted">Selecciona los días como guía. El número de días elegidos define cuántas sesiones contiene cada SEMANA (no depende del calendario).</p>
+      <div id="weekdayPicker" class="weekday-grid"></div>
+
+      <div class="row gap">
+        <label class="toggle"><input type="checkbox" id="soundToggle"> Sonido (campanilla)</label>
+      </div>
+
+      <div class="row gap">
+        <button id="btnSaveSettings" class="btn primary" value="default">Guardar</button>
+        <button class="btn" value="cancel">Cancelar</button>
+      </div>
+
+      <hr />
+      <h3>Progreso</h3>
+      <div class="row gap">
+        <button id="btnResetProgress" class="btn danger" value="default">Reiniciar completadas</button>
+        <button id="btnResetAll" class="btn danger" value="default">Reiniciar TODO</button>
+      </div>
+      <p class="muted small">“Reiniciar TODO” borra también tus días de entreno.</p>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
