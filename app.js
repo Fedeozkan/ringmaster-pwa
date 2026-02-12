@@ -73,6 +73,41 @@ function setSoundEnabled(v){
 
 // Sonido tipo "campanilla" (sin archivos, WebAudio)
 let _audioCtx = null;
+
+let _audioUnlocked = false;
+function unlockAudio(){
+  // iOS requiere un gesto del usuario para permitir audio.
+  // Llamamos a esto en clicks/taps (Start/Hecho/Ajustes) para "desbloquear" el AudioContext.
+  try{
+    if (!getSoundEnabled()) return;
+    if (!_audioCtx){
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (_audioCtx.state === "suspended") _audioCtx.resume();
+
+    // Disparo ultracorto (casi inaudible) para asegurar el unlock
+    const ctx = _audioCtx;
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(440, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.02);
+
+    _audioUnlocked = true;
+  }catch(e){
+    // si el navegador bloquea audio, no hacemos nada
+  }
+}
+
+// Backup: primer toque en la app desbloquea sonido (una sola vez)
+window.addEventListener("pointerdown", () => { if (!_audioUnlocked) unlockAudio(); }, { once: true });
+window.addEventListener("touchstart", () => { if (!_audioUnlocked) unlockAudio(); }, { once: true });
+
 function playBell(){
   try{
     if (!_audioCtx){
@@ -482,11 +517,13 @@ function renderPlayer(root, sessionId, stepIndex){
     };
 
     const btnPrev = el("button", {class:"btn small", onclick: () => {
+      unlockAudio();
       stopTimer();
       location.hash = `#player-${sessionId}?step=${Math.max(stepIndex-1,0)}`;
     }}, ["← Anterior"]);
 
     const btnNext = el("button", {class:"btn small", onclick: () => {
+      unlockAudio();
       stopTimer();
       location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
     }}, ["Siguiente →"]);
@@ -510,7 +547,7 @@ function renderPlayer(root, sessionId, stepIndex){
       controls.appendChild(el("div", {class:"muted small"}, ["Ejercicio por tiempo: pulsa Start."]));
       controls.appendChild(timerEl);
 
-      const btnStart = el("button", {class:"btn primary big", onclick: () => startCountdown(true)}, ["Start"]);
+      const btnStart = el("button", {class:"btn primary big", onclick: () => { unlockAudio(); startCountdown(true); }}, ["Start"]);
 
       // Start grande arriba, navegación pequeña abajo
       controls.appendChild(btnStart);
@@ -519,16 +556,19 @@ function renderPlayer(root, sessionId, stepIndex){
   } else {
     // reps / sin tiempo
     const btnDone = el("button", {class:"btn primary big", onclick: () => {
+      unlockAudio();
       stopTimer();
       location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
     }}, ["Hecho ✅"]);
 
     const btnBack = el("button", {class:"btn small", onclick: () => {
+      unlockAudio();
       stopTimer();
       location.hash = `#player-${sessionId}?step=${Math.max(stepIndex-1,0)}`;
     }}, ["← Anterior"]);
 
     const btnSkip = el("button", {class:"btn small", onclick: () => {
+      unlockAudio();
       stopTimer();
       location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
     }}, ["Siguiente →"]);
@@ -606,7 +646,10 @@ function setupSettings(){
       }
       setDays(days);
       const soundToggle = $("#soundToggle");
-      if (soundToggle) setSoundEnabled(soundToggle.checked);
+      if (soundToggle) {
+        setSoundEnabled(soundToggle.checked);
+        if (soundToggle.checked) unlockAudio();
+      }
       dlg.close();
       route();
     };
