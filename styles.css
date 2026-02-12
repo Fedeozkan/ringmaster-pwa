@@ -68,6 +68,19 @@ h3{margin:10px 0 8px 0;}
   border-radius:12px;
   font-weight:600;
 }
+.btn.small{
+  padding:8px 10px;
+  border-radius:10px;
+  font-size:13px;
+  font-weight:600;
+}
+.btn.big{
+  width:100%;
+  padding:14px 14px;
+  border-radius:16px;
+  font-size:18px;
+  font-weight:800;
+}
 .btn.primary{background:var(--text); color:#111;}
 .btn.danger{border-color:rgba(255,90,95,0.4); color:var(--danger);}
 .list{display:flex; flex-direction:column; gap:10px;}
@@ -94,6 +107,20 @@ hr{border:none; border-top:1px solid var(--line); margin:12px 0;}
   gap:6px;
   margin:10px 0 14px 0;
 }
+.weekhdr{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  margin:14px 0 8px 0;
+  padding-top:10px;
+  border-top:1px solid var(--line);
+}
+.weekhdr:first-child{
+  border-top:none;
+  padding-top:0;
+  margin-top:0;
+}
+.weekhdr-title{font-weight:800;}
 .daychip{
   border:1px solid var(--line);
   border-radius:12px;

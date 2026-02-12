@@ -8,7 +8,10 @@ const LS = {
   days: "rm.trainingDays.v1" // 0=Dom .. 6=Sáb
 };
 
-const WEEKDAYS_ES = [
+// Nota: Date.getDay() usa 0=Dom .. 6=Sáb.
+// Queremos que la semana empiece en lunes (para mostrar/ordenar),
+// pero sin romper el índice de getDay().
+const WEEKDAYS_BY_INDEX = [
   {i:0, short:"D", name:"Dom"},
   {i:1, short:"L", name:"Lun"},
   {i:2, short:"M", name:"Mar"},
@@ -17,6 +20,8 @@ const WEEKDAYS_ES = [
   {i:5, short:"V", name:"Vie"},
   {i:6, short:"S", name:"Sáb"}
 ];
+// Orden visual: lunes → domingo
+const WEEK_ORDER_MON = [1,2,3,4,5,6,0];
 
 let DATA = null; // { program, exById }
 
@@ -70,9 +75,36 @@ function nextTrainDates(daysSet, count=12){
   return out;
 }
 
+function orderIndexMon(dayIndex){
+  // Convierte 0=Dom..6=Sáb a un orden donde lunes=0 ... domingo=6
+  return (dayIndex + 6) % 7;
+}
+
+function daysToString(daysSet){
+  return [...daysSet]
+    .sort((a,b)=>orderIndexMon(a)-orderIndexMon(b))
+    .map(d=>WEEKDAYS_BY_INDEX[d].name)
+    .join(", ");
+}
+
+function startOfWeekMonday(date){
+  const d = new Date(date);
+  d.setHours(0,0,0,0);
+  const wd = d.getDay(); // 0=Dom..6=Sáb
+  const diff = (wd + 6) % 7; // lunes->0 ... domingo->6
+  d.setDate(d.getDate() - diff);
+  return d;
+}
+
+function endOfWeekSunday(mondayDate){
+  const d = new Date(mondayDate);
+  d.setDate(d.getDate() + 6);
+  return d;
+}
+
 function fmtDate(d){
   // ej. "Jue 12 feb"
-  const wd = WEEKDAYS_ES[d.getDay()].name;
+  const wd = WEEKDAYS_BY_INDEX[d.getDay()].name;
   const day = d.getDate();
   const month = d.toLocaleString("es-ES", {month:"short"});
   return `${wd} ${day} ${month}`;
@@ -158,33 +190,61 @@ function renderHome(root){
     el("div", {class:"row"}, [
       el("div", {}, [
         el("h2", {}, ["Tu semana"]),
-        el("div", {class:"muted"}, [`Días de entreno: ${[...days].map(d=>WEEKDAYS_ES[d].name).join(", ")}`])
+        el("div", {class:"muted"}, [`Días de entreno: ${daysToString(days)}`])
       ]),
       el("div", {class:"badge " + (doneCount ? "good" : "")}, [`${doneCount}/${total} completadas`])
     ])
   ]));
 
-  // próximos entrenos
-  const upcomingDates = nextTrainDates(days, 10);
+  // próximos entrenos (agrupados por semanas, empezando en lunes)
   const pendingSessions = DATA.program.sessions.filter(s => !completed.has(s.id));
+  const upcomingDates = nextTrainDates(days, 28); // ~4 semanas
 
-  const planItems = el("div", {class:"list"}, []);
-  for (let i=0; i<upcomingDates.length; i++){
-    const date = upcomingDates[i];
-    const session = pendingSessions[i] || null;
-    const left = el("div", {}, [
-      el("div", {class:"item-title"}, [fmtDate(date)]),
-      el("div", {class:"item-sub"}, [session ? `${session.name} · ${session.phase}` : "Sin sesiones pendientes 🎉"])
-    ]);
-    const right = el("div", {class:"kbd"}, [session ? "Abrir →" : ""]);
-    const row = el("a", {class:"item", href: session ? `#session-${session.id}` : "#home"}, [left, right]);
-    planItems.appendChild(row);
+  // Asigna sesiones en orden a cada fecha de entreno futura
+  const weekMap = new Map();
+  const weeks = [];
+  let si = 0;
+  for (const date of upcomingDates){
+    const ws = startOfWeekMonday(date);
+    const key = ws.toISOString().slice(0,10);
+    if (!weekMap.has(key)){
+      const obj = { start: ws, items: [] };
+      weekMap.set(key, obj);
+      weeks.push(obj);
+    }
+    const session = pendingSessions[si] || null;
+    if (session) si++;
+    weekMap.get(key).items.push({ date, session });
   }
+
+  const upcomingWrap = el("div", {}, []);
+  weeks.forEach((w, idx) => {
+    const weekStart = w.start;
+    const weekEnd = endOfWeekSunday(weekStart);
+    const header = el("div", {class:"weekhdr"}, [
+      el("div", {class:"weekhdr-title"}, [`Semana ${idx+1}`]),
+      el("div", {class:"muted small"}, [`${fmtDate(weekStart)} – ${fmtDate(weekEnd)}`])
+    ]);
+
+    const list = el("div", {class:"list"}, []);
+    for (const it of w.items){
+      const left = el("div", {}, [
+        el("div", {class:"item-title"}, [fmtDate(it.date)]),
+        el("div", {class:"item-sub"}, [it.session ? `${it.session.name} · ${it.session.phase}` : "Sin sesiones pendientes 🎉"])
+      ]);
+      const right = el("div", {class:"kbd"}, [it.session ? "Abrir →" : ""]);
+      const row = el("a", {class:"item", href: it.session ? `#session-${it.session.id}` : "#home"}, [left, right]);
+      list.appendChild(row);
+    }
+
+    upcomingWrap.appendChild(header);
+    upcomingWrap.appendChild(list);
+  });
 
   root.appendChild(el("div", {class:"card"}, [
     el("h3", {}, ["Próximos entrenos"]),
-    el("div", {class:"muted small"}, ["Se asignan en orden: la primera sesión no completada cae en tu próximo día elegido."]),
-    planItems
+    el("div", {class:"muted small"}, ["Se asignan en orden (Thenx): la primera sesión no completada cae en tu próximo día elegido." ]),
+    upcomingWrap
   ]));
 
   // lista de sesiones
@@ -346,7 +406,7 @@ function renderPlayer(root, sessionId, stepIndex){
     playerState.remaining = step.seconds;
     setTimer(playerState.remaining);
 
-    const btnStart = el("button", {class:"btn primary", onclick: () => {
+    const startCountdown = (autoAdvance=true) => {
       if (playerState.running) return;
       playerState.running = true;
       playerState.timerId = setInterval(() => {
@@ -354,39 +414,70 @@ function renderPlayer(root, sessionId, stepIndex){
         setTimer(Math.max(playerState.remaining,0));
         if (playerState.remaining <= 0){
           stopTimer();
-          // auto-avanza (Thenx: ritmo)
-          location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
+          if (autoAdvance){
+            location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
+          }
         }
       }, 1000);
-    }}, ["Start"]);
+    };
 
-    const btnPause = el("button", {class:"btn", onclick: () => { stopTimer(); }}, ["Pausa"]);
+    const btnPrev = el("button", {class:"btn small", onclick: () => {
+      stopTimer();
+      location.hash = `#player-${sessionId}?step=${Math.max(stepIndex-1,0)}`;
+    }}, ["← Anterior"]);
 
-    const btnSkip = el("button", {class:"btn", onclick: () => {
+    const btnNext = el("button", {class:"btn small", onclick: () => {
       stopTimer();
       location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
     }}, ["Siguiente →"]);
 
-    controls.appendChild(el("div", {class:"muted small"}, [isRest ? "Descanso: avanza solo al terminar." : "Tiempo: avanza solo al terminar."]));
-    controls.appendChild(timerEl);
-    controls.appendChild(el("div", {class:"controls"}, [btnStart, btnPause, btnSkip]));
+    if (isRest){
+      // Descanso: empieza SOLO y avanza SOLO al terminar
+      controls.appendChild(el("div", {class:"muted small"}, ["Descanso: empieza solo. Puedes alargarlo +10s."]));
+      controls.appendChild(timerEl);
+
+      const btnPlus10 = el("button", {class:"btn small", onclick: () => {
+        playerState.remaining += 10;
+        setTimer(playerState.remaining);
+      }}, ["+10s"]);
+
+      controls.appendChild(el("div", {class:"controls"}, [btnPrev, btnPlus10, btnNext]));
+
+      // Autostart del descanso al entrar en el paso (sin “Start”)
+      setTimeout(() => startCountdown(true), 0);
+    } else {
+      // Ejercicio por tiempo: el usuario pulsa Start. Al terminar, avanza solo (y el descanso siguiente arrancará solo).
+      controls.appendChild(el("div", {class:"muted small"}, ["Ejercicio por tiempo: pulsa Start."]));
+      controls.appendChild(timerEl);
+
+      const btnStart = el("button", {class:"btn primary big", onclick: () => startCountdown(true)}, ["Start"]);
+
+      // Start grande arriba, navegación pequeña abajo
+      controls.appendChild(btnStart);
+      controls.appendChild(el("div", {class:"controls"}, [btnPrev, btnNext]));
+    }
   } else {
     // reps / sin tiempo
-    const btnDone = el("button", {class:"btn primary", onclick: () => {
+    const btnDone = el("button", {class:"btn primary big", onclick: () => {
+      stopTimer();
       location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
     }}, ["Hecho ✅"]);
 
-    const btnBack = el("button", {class:"btn", onclick: () => {
+    const btnBack = el("button", {class:"btn small", onclick: () => {
+      stopTimer();
       location.hash = `#player-${sessionId}?step=${Math.max(stepIndex-1,0)}`;
     }}, ["← Anterior"]);
 
-    const btnSkip = el("button", {class:"btn", onclick: () => {
+    const btnSkip = el("button", {class:"btn small", onclick: () => {
+      stopTimer();
       location.hash = `#player-${sessionId}?step=${stepIndex+1}`;
     }}, ["Siguiente →"]);
 
     controls.appendChild(el("div", {class:"muted small"}, ["Reps: marca “Hecho” y sigue."]));
-    controls.appendChild(el("div", {class:"controls"}, [btnBack, btnDone, btnSkip]));
+    controls.appendChild(btnDone);
+    controls.appendChild(el("div", {class:"controls"}, [btnBack, btnSkip]));
   }
+
 
   // progressions
   if (!isRest && ex){
@@ -429,7 +520,8 @@ function setupSettings(){
 
   function renderPicker(daysSet){
     picker.innerHTML = "";
-    for (const wd of WEEKDAYS_ES){
+    for (const idx of WEEK_ORDER_MON){
+      const wd = WEEKDAYS_BY_INDEX[idx];
       const chip = el("div", {class:"daychip " + (daysSet.has(wd.i) ? "selected":""), onclick: () => {
         if (daysSet.has(wd.i)) daysSet.delete(wd.i);
         else daysSet.add(wd.i);
